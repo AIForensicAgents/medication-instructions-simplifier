@@ -1,0 +1,770 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+<title>Medication Instructions Simplifier</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://unpkg.com/alpinejs@3.13.3/dist/cdn.min.js" defer></script>
+<script src="https://unpkg.com/tesseract.js@5.0.4/dist/tesseract.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<script>
+tailwind.config = {
+  theme: {
+    extend: {
+      fontFamily: { sans: ['Inter', 'system-ui', 'sans-serif'] },
+      colors: {
+        primary: { 50:'#eff6ff',100:'#dbeafe',200:'#bfdbfe',300:'#93c5fd',400:'#60a5fa',500:'#3b82f6',600:'#2563eb',700:'#1d4ed8',800:'#1e40af',900:'#1e3a8a' },
+        warm: { 50:'#fefce8',100:'#fef9c3',200:'#fef08a',300:'#fde047' },
+        safe: { 50:'#f0fdf4',100:'#dcfce7',200:'#bbf7d0',500:'#22c55e',600:'#16a34a' },
+        alert: { 50:'#fff7ed',100:'#ffedd5',500:'#f97316',600:'#ea580c' },
+        danger: { 50:'#fef2f2',100:'#fee2e2',500:'#ef4444',600:'#dc2626' }
+      }
+    }
+  }
+}
+</script>
+<style>
+  * { -webkit-tap-highlight-color: transparent; }
+  body { font-family: 'Inter', system-ui, sans-serif; }
+  .tab-active { border-bottom: 3px solid #2563eb; color: #1d4ed8; font-weight: 600; }
+  .fade-in { animation: fadeIn 0.4s ease-in; }
+  @keyframes fadeIn { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:translateY(0); } }
+  .pulse-gentle { animation: pulseGentle 2s infinite; }
+  @keyframes pulseGentle { 0%,100% { opacity:1; } 50% { opacity:0.7; } }
+  .checklist-item input[type="checkbox"] { width:24px; height:24px; accent-color:#2563eb; }
+  @media print {
+    .no-print { display:none !important; }
+    body { font-size:14pt; }
+  }
+  .spinner { border:3px solid #e5e7eb; border-top:3px solid #2563eb; border-radius:50%; width:28px; height:28px; animation:spin 0.8s linear infinite; display:inline-block; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+  textarea, input, select, button { font-size: 16px !important; }
+  .big-touch { min-height:48px; min-width:48px; }
+</style>
+</head>
+<body class="bg-gray-50 min-h-screen" x-data="app()" x-init="init()">
+
+<!-- Header -->
+<header class="bg-white shadow-sm sticky top-0 z-50 no-print">
+  <div class="max-w-2xl mx-auto px-4 py-3 flex items-center justify-between">
+    <div class="flex items-center gap-2">
+      <span class="text-3xl">💊</span>
+      <div>
+        <h1 class="text-lg font-bold text-gray-900 leading-tight">Med Simplifier</h1>
+        <p class="text-xs text-gray-500">Easy-to-understand instructions</p>
+      </div>
+    </div>
+    <div class="flex items-center gap-2">
+      <button @click="showSettings = !showSettings" class="big-touch p-2 rounded-full hover:bg-gray-100 transition" aria-label="Settings">
+        <svg class="w-6 h-6 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+      </button>
+    </div>
+  </div>
+</header>
+
+<!-- Settings Panel -->
+<div x-show="showSettings" x-transition class="no-print bg-white border-b shadow-lg max-w-2xl mx-auto">
+  <div class="px-4 py-4 space-y-4">
+    <h2 class="font-bold text-gray-800 text-lg">⚙️ Settings</h2>
+    
+    <div>
+      <label class="block text-sm font-medium text-gray-700 mb-1">👤 I am a:</label>
+      <select x-model="settings.role" @change="saveSettings()" class="big-touch w-full border border-gray-300 rounded-xl px-4 py-3 bg-white">
+        <option value="patient">Patient</option>
+        <option value="caregiver">Caregiver / Family Member</option>
+        <option value="clinician">Clinician / Healthcare Provider</option>
+      </select>
+    </div>
+
+    <div>
+      <label class="block text-sm font-medium text-gray-700 mb-1">📖 Reading Level:</label>
+      <select x-model="settings.readingLevel" @change="saveSettings()" class="big-touch w-full border border-gray-300 rounded-xl px-4 py-3 bg-white">
+        <option value="simple">Simple (5th grade)</option>
+        <option value="moderate">Moderate (8th grade)</option>
+        <option value="standard">Standard (12th grade)</option>
+      </select>
+    </div>
+
+    <div>
+      <label class="block text-sm font-medium text-gray-700 mb-1">🔤 Text Size:</label>
+      <div class="flex gap-2">
+        <button @click="settings.fontSize='text-base'; saveSettings()" :class="settings.fontSize==='text-base'?'bg-primary-600 text-white':'bg-gray-100 text-gray-700'" class="big-touch flex-1 rounded-xl py-3 font-medium transition">Normal</button>
+        <button @click="settings.fontSize='text-lg'; saveSettings()" :class="settings.fontSize==='text-lg'?'bg-primary-600 text-white':'bg-gray-100 text-gray-700'" class="big-touch flex-1 rounded-xl py-3 font-medium transition">Large</button>
+        <button @click="settings.fontSize='text-xl'; saveSettings()" :class="settings.fontSize==='text-xl'?'bg-primary-600 text-white':'bg-gray-100 text-gray-700'" class="big-touch flex-1 rounded-xl py-3 font-medium transition">Extra Large</button>
+      </div>
+    </div>
+
+    <div>
+      <label class="block text-sm font-medium text-gray-700 mb-1">🌐 Language:</label>
+      <select x-model="settings.language" @change="saveSettings()" class="big-touch w-full border border-gray-300 rounded-xl px-4 py-3 bg-white">
+        <option value="English">English</option>
+        <option value="Spanish">Spanish</option>
+        <option value="French">French</option>
+        <option value="Chinese">Chinese (Simplified)</option>
+        <option value="Vietnamese">Vietnamese</option>
+        <option value="Korean">Korean</option>
+        <option value="Arabic">Arabic</option>
+      </select>
+    </div>
+
+    <div class="flex items-center justify-between">
+      <span class="text-sm font-medium text-gray-700">🔊 Enable Audio Readback</span>
+      <button @click="settings.audioEnabled = !settings.audioEnabled; saveSettings()" :class="settings.audioEnabled?'bg-primary-600':'bg-gray-300'" class="relative inline-flex h-7 w-12 items-center rounded-full transition">
+        <span :class="settings.audioEnabled?'translate-x-6':'translate-x-1'" class="inline-block h-5 w-5 transform rounded-full bg-white transition shadow"></span>
+      </button>
+    </div>
+
+    <button @click="showSettings=false" class="big-touch w-full bg-primary-600 text-white rounded-xl py-3 font-semibold hover:bg-primary-700 transition">Done ✓</button>
+  </div>
+</div>
+
+<!-- Main Content -->
+<main class="max-w-2xl mx-auto px-4 py-4 pb-24" :class="settings.fontSize">
+
+  <!-- Onboarding Card (shown first time) -->
+  <div x-show="showOnboarding && !hasResult" x-transition class="bg-gradient-to-br from-primary-50 to-blue-50 rounded-2xl p-5 mb-4 border border-primary-200 fade-in">
+    <h2 class="font-bold text-primary-800 text-xl mb-2">👋 Welcome!</h2>
+    <p class="text-primary-700 mb-3">This tool helps you <strong>understand your medication instructions</strong> in simple, clear language.</p>
+    <div class="space-y-2 text-sm text-primary-700">
+      <div class="flex items-start gap-2"><span>📋</span><span>Paste or upload your medication/discharge instructions</span></div>
+      <div class="flex items-start gap-2"><span>🤖</span><span>We'll create an easy-to-read version with checklists</span></div>
+      <div class="flex items-start gap-2"><span>🔊</span><span>Listen to your instructions read aloud</span></div>
+      <div class="flex items-start gap-2"><span>⚠️</span><span>Important warnings are highlighted clearly</span></div>
+    </div>
+    <button @click="showOnboarding=false; localStorage.setItem('onboarded','true')" class="big-touch mt-4 bg-primary-600 text-white rounded-xl px-6 py-3 font-semibold hover:bg-primary-700 transition w-full">Got it! Let's start →</button>
+  </div>
+
+  <!-- Input Section -->
+  <div x-show="!hasResult" class="space-y-4 fade-in">
+    
+    <!-- Text Input -->
+    <div class="bg-white rounded-2xl shadow-sm border border-gray-200 p-4">
+      <label class="block font-semibold text-gray-800 mb-2 text-lg">📄 Your Medical Instructions</label>
+      <p class="text-sm text-gray-500 mb-3">Paste text from your medication label, discharge papers, or consent form below.</p>
+      <textarea x-model="inputText" rows="6" class="w-full border border-gray-300 rounded-xl px-4 py-3 focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition resize-y" placeholder="Example: Take Metformin 500mg orally twice daily with meals. Monitor blood glucose levels regularly. Contact physician if experiencing nausea, vomiting, or unusual muscle pain..."></textarea>
+      
+      <div class="mt-3 text-center text-gray-400 text-sm font-medium">— or —</div>
+      
+      <!-- Image Upload -->
+      <div class="mt-3">
+        <label class="big-touch flex items-center justify-center gap-2 w-full border-2 border-dashed border-gray-300 rounded-xl py-4 px-4 cursor-pointer hover:border-primary-400 hover:bg-primary-50 transition">
+          <span class="text-2xl">📸</span>
+          <span class="font-medium text-gray-600">Upload a photo of your instructions</span>
+          <input type="file" accept="image/*" capture="environment" @change="handleImageUpload($event)" class="hidden">
+        </label>
+      </div>
+
+      <!-- OCR Status -->
+      <div x-show="ocrStatus" class="mt-3 flex items-center gap-2 text-sm" :class="ocrStatus==='done'?'text-safe-600':'text-primary-600'">
+        <span x-show="ocrStatus==='processing'" class="spinner"></span>
+        <span x-show="ocrStatus==='processing'">Reading text from image... This may take a moment.</span>
+        <span x-show="ocrStatus==='done'">✅ Text extracted from image! Review and edit above if needed.</span>
+        <span x-show="ocrStatus==='error'" class="text-danger-600">❌ Could not read image. Please try again or type the text.</span>
+      </div>
+    </div>
+
+    <!-- Simplify Button -->
+    <button @click="simplifyInstructions()" :disabled="!inputText.trim() || isProcessing" class="big-touch w-full bg-primary-600 text-white rounded-2xl py-4 font-bold text-lg hover:bg-primary-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition shadow-lg shadow-primary-200 flex items-center justify-center gap-3">
+      <span x-show="!isProcessing">✨ Simplify My Instructions</span>
+      <span x-show="isProcessing" class="flex items-center gap-2"><span class="spinner"></span> Simplifying...</span>
+    </button>
+
+    <!-- Processing Status -->
+    <div x-show="isProcessing" class="text-center text-sm text-gray-500 pulse-gentle">
+      <p x-text="processingStep"></p>
+    </div>
+
+    <!-- Previous Results -->
+    <div x-show="history.length > 0" class="bg-white rounded-2xl shadow-sm border border-gray-200 p-4">
+      <h3 class="font-semibold text-gray-800 mb-3">📂 Previous Simplifications</h3>
+      <div class="space-y-2">
+        <template x-for="(item, idx) in history.slice().reverse()" :key="idx">
+          <button @click="loadFromHistory(item)" class="big-touch w-full text-left bg-gray-50 hover:bg-primary-50 rounded-xl p-3 transition border border-gray-100">
+            <div class="font-medium text-gray-800 truncate" x-text="item.title || 'Untitled Instructions'"></div>
+            <div class="text-xs text-gray-500 mt-1" x-text="new Date(item.timestamp).toLocaleDateString('en-US', {month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})"></div>
+          </button>
+        </template>
+      </div>
+    </div>
+  </div>
+
+  <!-- Results Section -->
+  <div x-show="hasResult" class="space-y-4 fade-in">
+    
+    <!-- Back Button -->
+    <button @click="hasResult=false" class="big-touch no-print flex items-center gap-2 text-primary-600 font-medium hover:text-primary-800 transition py-2">
+      <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+      Simplify another document
+    </button>
+
+    <!-- View Tabs -->
+    <div class="no-print flex border-b border-gray-200 bg-white rounded-t-2xl overflow-x-auto">
+      <button @click="activeTab='patient'" :class="activeTab==='patient'?'tab-active':'text-gray-500'" class="big-touch flex-1 py-3 px-4 text-sm font-medium transition whitespace-nowrap">👤 Patient View</button>
+      <button @click="activeTab='caregiver'" :class="activeTab==='caregiver'?'tab-active':'text-gray-500'" class="big-touch flex-1 py-3 px-4 text-sm font-medium transition whitespace-nowrap">🤝 Caregiver</button>
+      <button @click="activeTab='clinician'" :class="activeTab==='clinician'?'tab-active':'text-gray-500'" class="big-touch flex-1 py-3 px-4 text-sm font-medium transition whitespace-nowrap">🩺 Clinician</button>
+    </div>
+
+    <!-- PATIENT VIEW -->
+    <div x-show="activeTab==='patient'" class="space-y-4">
+      
+      <!-- Title Card -->
+      <div class="bg-white rounded-2xl shadow-sm border border-gray-200 p-5">
+        <h2 class="font-bold text-xl text-gray-900 mb-1" x-text="result.title || 'Your Simplified Instructions'"></h2>
+        <p class="text-sm text-gray-500">Simplified on <span x-text="new Date().toLocaleDateString()"></span></p>
+        
+        <!-- Audio Button -->
+        <div x-show="settings.audioEnabled" class="mt-3 no-print">
+          <button @click="readAloud()" :disabled="isSpeaking" class="big-touch flex items-center gap-2 bg-primary-50 text-primary-700 rounded-xl px-4 py-3 font-medium hover:bg-primary-100 transition">
+            <span x-show="!isSpeaking">🔊 Read Aloud</span>
+            <span x-show="isSpeaking">⏸️ Stop Reading</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Summary -->
+      <div class="bg-blue-50 rounded-2xl border border-blue-200 p-5">
+        <h3 class="font-bold text-blue-900 mb-2 flex items-center gap-2">📝 Summary</h3>
+        <p class="text-blue-800 leading-relaxed" x-text="result.summary"></p>
+      </div>
+
+      <!-- Checklist -->
+      <div class="bg-white rounded-2xl shadow-sm border border-gray-200 p-5">
+        <h3 class="font-bold text-gray-900 mb-3 flex items-center gap-2">✅ Your Checklist</h3>
+        <div class="space-y-3">
+          <template x-for="(step, i) in result.checklist" :key="i">
+            <label class="checklist-item flex items-start gap-3 p-3 rounded-xl bg-gray-50 hover:bg-safe-50 transition cursor-pointer border border-gray-100">
+              <input type="checkbox" :checked="checkedItems[i]" @change="checkedItems[i] = $event.target.checked; saveChecklist()" class="mt-0.5 flex-shrink-0">
+              <span class="text-gray-800" :class="checkedItems[i]?'line-through text-gray-400':''" x-text="step"></span>
+            </label>
+          </template>
+        </div>
+        <div class="mt-4 text-sm text-gray-500">
+          <span x-text="Object.values(checkedItems).filter(Boolean).length"></span> of <span x-text="result.checklist?.length || 0"></span> steps completed
+        </div>
+      </div>
+
+      <!-- Warnings -->
+      <div x-show="result.warnings && result.warnings.length > 0" class="bg-danger-50 rounded-2xl border border-danger-500 p-5">
+        <h3 class="font-bold text-danger-600 mb-3 flex items-center gap-2">⚠️ Important Warnings</h3>
+        <div class="space-y-2">
+          <template x-for="(warning, i) in result.warnings" :key="i">
+            <div class="flex items-start gap-2 text-danger-800">
+              <span class="text-lg">🚨</span>
+              <span x-text="warning"></span>
+            </div>
+          </template>
+        </div>
+      </div>
+
+      <!-- Side Effects -->
+      <div x-show="result.sideEffects && result.sideEffects.length > 0" class="bg-alert-50 rounded-2xl border border-alert-500 p-5">
+        <h3 class="font-bold text-alert-600 mb-3 flex items-center gap-2">💡 Possible Side Effects</h3>
+        <div class="space-y-2">
+          <template x-for="(se, i) in result.sideEffects" :key="i">
+            <div class="flex items-start gap-2 text-alert-800">
+              <span>•</span>
+              <span x-text="se"></span>
+            </div>
+          </template>
+        </div>
+      </div>
+
+      <!-- When to Call Doctor -->
+      <div x-show="result.callDoctor && result.callDoctor.length > 0" class="bg-red-50 rounded-2xl border-2 border-red-300 p-5">
+        <h3 class="font-bold text-red-700 mb-3 flex items-center gap-2 text-lg">📞 Call Your Doctor If:</h3>
+        <div class="space-y-2">
+          <template x-for="(reason, i) in result.callDoctor" :key="i">
+            <div class="flex items-start gap-2 text-red-800 font-medium">
+              <span class="text-lg">→</span>
+              <span x-text="reason"></span>
+            </div>
+          </template>
+        </div>
+      </div>
+
+      <!-- Teach-Back -->
+      <div class="bg-warm-50 rounded-2xl border border-yellow-300 p-5 no-print">
+        <h3 class="font-bold text-yellow-800 mb-3 flex items-center gap-2">🧠 Check Your Understanding</h3>
+        <p class="text-yellow-800 mb-3">Try answering these questions to make sure you understand:</p>
+        <div class="space-y-3">
+          <template x-for="(q, i) in result.teachBack" :key="i">
+            <div class="bg-white rounded-xl p-3 border border-yellow-200">
+              <p class="font-medium text-gray-800" x-text="q"></p>
+            </div>
+          </template>
+        </div>
+      </div>
+    </div>
+
+    <!-- CAREGIVER VIEW -->
+    <div x-show="activeTab==='caregiver'" class="space-y-4">
+      <div class="bg-white rounded-2xl shadow-sm border border-gray-200 p-5">
+        <h3 class="font-bold text-xl text-gray-900 mb-2">🤝 Caregiver Summary</h3>
+        <p class="text-gray-600 leading-relaxed" x-text="result.caregiverSummary"></p>
+      </div>
+
+      <div class="bg-white rounded-2xl shadow-sm border border-gray-200 p-5">
+        <h3 class="font-bold text-gray-900 mb-3">📋 What You Need To Do</h3>
+        <div class="space-y-3">
+          <template x-for="(task, i) in result.caregiverTasks" :key="i">
+            <div class="flex items-start gap-3 p-3 rounded-xl bg-primary-50 border border-primary-100">
+              <span class="bg-primary-600 text-white rounded-full w-7 h-7 flex items-center justify-center text-sm font-bold flex-shrink-0" x-text="i+1"></span>
+              <span class="text-gray-800" x-text="task"></span>
+            </div>
+          </template>
+        </div>
+      </div>
+
+      <div x-show="result.caregiverWatchFor && result.caregiverWatchFor.length > 0" class="bg-alert-50 rounded-2xl border border-alert-500 p-5">
+        <h3 class="font-bold text-alert-600 mb-3">👀 Watch For These Signs</h3>
+        <div class="space-y-2">
+          <template x-for="(sign, i) in result.caregiverWatchFor" :key="i">
+            <div class="flex items-start gap-2 text-alert-800">
+              <span>⚡</span>
+              <span x-text="sign"></span>
+            </div>
+          </template>
+        </div>
+      </div>
+    </div>
+
+    <!-- CLINICIAN VIEW -->
+    <div x-show="activeTab==='clinician'" class="space-y-4">
+      <div class="bg-white rounded-2xl shadow-sm border border-gray-200 p-5">
+        <h3 class="font-bold text-xl text-gray-900 mb-2">🩺 Clinician Review</h3>
+        <p class="text-gray-600 text-sm">AI-flagged items requiring clinical review</p>
+      </div>
+
+      <!-- Ambiguity Flags -->
+      <div x-show="result.ambiguityFlags && result.ambiguityFlags.length > 0" class="bg-yellow-50 rounded-2xl border-2 border-yellow-400 p-5">
+        <h3 class="font-bold text-yellow-800 mb-3">🚩 Ambiguity Flags</h3>
+        <p class="text-sm text-yellow-700 mb-3">These phrases in the original text may cause patient confusion:</p>
+        <div class="space-y-3">
+          <template x-for="(flag, i) in result.ambiguityFlags" :key="i">
+            <div class="bg-white rounded-xl p-4 border border-yellow-300">
+              <p class="font-medium text-gray-900 mb-1">Original: <span class="text-red-600 italic" x-text="flag.original"></span></p>
+              <p class="text-gray-700">Issue: <span x-text="flag.issue"></span></p>
+              <p class="text-safe-600 font-medium mt-1">Suggestion: <span x-text="flag.suggestion"></span></p>
+            </div>
+          </template>
+        </div>
+      </div>
+
+      <!-- Risk Assessment -->
+      <div class="bg-white rounded-2xl shadow-sm border border-gray-200 p-5">
+        <h3 class="font-bold text-gray-900 mb-3">⚕️ Risk & Comprehension Assessment</h3>
+        <div class="space-y-3">
+          <div class="flex justify-between items-center p-3 bg-gray-50 rounded-xl">
+            <span class="text-gray-700 font-medium">Original Reading Level</span>
+            <span class="font-bold text-primary-700" x-text="result.originalReadingLevel || 'N/A'"></span>
+          </div>
+          <div class="flex justify-between items-center p-3 bg-gray-50 rounded-xl">
+            <span class="text-gray-700 font-medium">Simplified Reading Level</span>
+            <span class="font-bold text-safe-600" x-text="result.simplifiedReadingLevel || 'N/A'"></span>
+          </div>
+          <div class="flex justify-between items-center p-3 bg-gray-50 rounded-xl">
+            <span class="text-gray-700 font-medium">High-Risk Medications</span>
+            <span class="font-bold" :class="result.highRiskMeds?'text-danger-600':'text-safe-600'" x-text="result.highRiskMeds || 'None detected'"></span>
+          </div>
+          <div class="flex justify-between items-center p-3 bg-gray-50 rounded-xl">
+            <span class="text-gray-700 font-medium">Drug Interactions Noted</span>
+            <span class="font-bold" :class="result.interactions?'text-danger-600':'text-safe-600'" x-text="result.interactions || 'None detected'"></span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Comprehension Gaps -->
+      <div x-show="result.comprehensionGaps && result.comprehensionGaps.length > 0" class="bg-primary-50 rounded-2xl border border-primary-200 p-5">
+        <h3 class="font-bold text-primary-800 mb-3">🔍 Likely Comprehension Gaps</h3>
+        <div class="space-y-2">
+          <template x-for="(gap, i) in result.comprehensionGaps" :key="i">
+            <div class="flex items-start gap-2 text-primary-800">
+              <span>📌</span>
+              <span x-text="gap"></span>
+            </div>
+          </template>
+        </div>
+      </div>
+
+      <!-- Clinical Notes -->
+      <div class="bg-white rounded-2xl shadow-sm border border-gray-200 p-5">
+        <h3 class="font-bold text-gray-900 mb-2">📝 Clinical Simplification Notes</h3>
+        <p class="text-gray-700 leading-relaxed" x-text="result.clinicianNotes"></p>
+      </div>
+    </div>
+
+    <!-- Action Buttons -->
+    <div class="no-print flex flex-wrap gap-3 pt-2">
+      <button @click="printResults()" class="big-touch flex-1 min-w-[140px] bg-gray-100 text-gray-700 rounded-xl py-3 font-medium hover:bg-gray-200 transition flex items-center justify-center gap-2">
+        🖨️ Print
+      </button>
+      <button @click="copyResults()" class="big-touch flex-1 min-w-[140px] bg-gray-100 text-gray-700 rounded-xl py-3 font-medium hover:bg-gray-200 transition flex items-center justify-center gap-2">
+        📋 Copy
+      </button>
+      <button @click="shareResults()" class="big-touch flex-1 min-w-[140px] bg-primary-100 text-primary-700 rounded-xl py-3 font-medium hover:bg-primary-200 transition flex items-center justify-center gap-2">
+        📤 Share
+      </button>
+    </div>
+  </div>
+
+  <!-- Error Display -->
+  <div x-show="errorMessage" x-transition class="mt-4 bg-danger-50 border border-danger-500 rounded-2xl p-5">
+    <div class="flex items-start gap-3">
+      <span class="text-2xl">😟</span>
+      <div>
+        <h3 class="font-bold text-danger-700">Something went wrong</h3>
+        <p class="text-danger-700 mt-1" x-text="errorMessage"></p>
+        <button @click="errorMessage=''" class="mt-3 big-touch bg-danger-100 text-danger-700 rounded-xl px-4 py-2 font-medium hover:bg-danger-200 transition">Dismiss</button>
+      </div>
+    </div>
+  </div>
+
+</main>
+
+<script>
+// Global token/time tracking
+window.aiTotalInputTokens = 0;
+window.aiTotalOutputTokens = 0;
+window.aiTotalTime = 0;
+window.aiTimeByAlias = {};
+
+async function callAI(alias, params, retries = 3) {
+  const start = performance.now();
+  for (let attempt = 0; attempt < retries; attempt++) {
+    try {
+      const resp = await fetch('https://16504442930.work/run_prompt', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ alias, params })
+      });
+      if (!resp.ok) {
+        const errText = await resp.text();
+        if (attempt < retries - 1) continue;
+        // Format error with AI
+        try {
+          const errResp = await fetch('https://16504442930.work/run_prompt', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              alias: 'genericAI',
+              params: {
+                prompt: `Reformat this API error message to be user-friendly and empowering, helping the user fix the issue. Include the full original error. Return JSON with key "friendlyError" as a string. Original error: ${errText}`
+              }
+            })
+          });
+          const errData = await errResp.json();
+          throw new Error(errData.friendlyError || errText);
+        } catch(e2) {
+          throw new Error(`We had trouble processing your request. Please try again. (Details: ${errText})`);
+        }
+      }
+      const data = await resp.json();
+      const elapsed = performance.now() - start;
+      window.aiTotalTime += elapsed;
+      window.aiTimeByAlias[alias] = (window.aiTimeByAlias[alias] || 0) + elapsed;
+      if (data.input_tokens) window.aiTotalInputTokens += data.input_tokens;
+      if (data.output_tokens) window.aiTotalOutputTokens += data.output_tokens;
+      return data;
+    } catch (e) {
+      if (attempt === retries - 1) throw e;
+    }
+  }
+}
+
+function app() {
+  return {
+    inputText: '',
+    isProcessing: false,
+    processingStep: '',
+    hasResult: false,
+    result: {},
+    activeTab: 'patient',
+    checkedItems: {},
+    history: [],
+    showOnboarding: true,
+    showSettings: false,
+    ocrStatus: '',
+    isSpeaking: false,
+    errorMessage: '',
+    settings: {
+      role: 'patient',
+      readingLevel: 'simple',
+      fontSize: 'text-lg',
+      language: 'English',
+      audioEnabled: true
+    },
+
+    init() {
+      // Load settings
+      const savedSettings = localStorage.getItem('medSimplifier_settings');
+      if (savedSettings) this.settings = JSON.parse(savedSettings);
+      
+      // Load history
+      const savedHistory = localStorage.getItem('medSimplifier_history');
+      if (savedHistory) this.history = JSON.parse(savedHistory);
+      
+      // Check onboarding
+      if (localStorage.getItem('onboarded')) this.showOnboarding = false;
+      
+      // Load checklist state
+      const savedChecklist = localStorage.getItem('medSimplifier_checklist');
+      if (savedChecklist) this.checkedItems = JSON.parse(savedChecklist);
+    },
+
+    saveSettings() {
+      localStorage.setItem('medSimplifier_settings', JSON.stringify(this.settings));
+    },
+
+    saveChecklist() {
+      localStorage.setItem('medSimplifier_checklist', JSON.stringify(this.checkedItems));
+    },
+
+    async handleImageUpload(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+      
+      this.ocrStatus = 'processing';
+      try {
+        const { createWorker } = Tesseract;
+        const worker = await createWorker('eng');
+        const { data: { text } } = await worker.recognize(file);
+        await worker.terminate();
+        
+        if (text && text.trim()) {
+          this.inputText = text.trim();
+          this.ocrStatus = 'done';
+        } else {
+          this.ocrStatus = 'error';
+        }
+      } catch (e) {
+        console.error('OCR error:', e);
+        this.ocrStatus = 'error';
+      }
+    },
+
+    async simplifyInstructions() {
+      if (!this.inputText.trim() || this.isProcessing) return;
+      
+      this.isProcessing = true;
+      this.errorMessage = '';
+      this.processingStep = 'Analyzing your medical instructions...';
+      
+      try {
+        // Build the prompt based on settings
+        const roleContext = {
+          patient: 'a patient who needs to understand their own medication instructions',
+          caregiver: 'a caregiver helping a loved one understand their medication instructions',
+          clinician: 'a clinician reviewing medication instructions for patient discharge'
+        };
+
+        const readingLevelMap = {
+          simple: '5th grade reading level, very short sentences, common everyday words only',
+          moderate: '8th grade reading level, clear sentences, minimal medical jargon',
+          standard: '12th grade reading level, some medical terms with brief explanations'
+        };
+
+        const languageInstruction = this.settings.language !== 'English' 
+          ? `IMPORTANT: All patient-facing text (summary, checklist, warnings, sideEffects, callDoctor, teachBack, caregiverSummary, caregiverTasks, caregiverWatchFor) MUST be written in ${this.settings.language}. Clinician-facing fields can remain in English.`
+          : '';
+
+        const prompt = `You are an expert medical communicator and health literacy specialist. Your task is to simplify medication/medical instructions for ${roleContext[this.settings.role]}.
+
+Reading level target: ${readingLevelMap[this.settings.readingLevel]}
+${languageInstruction}
+
+ORIGINAL MEDICAL INSTRUCTIONS:
+"""
+${this.inputText}
+"""
+
+Analyze these instructions thoroughly and return a JSON object with EXACTLY this structure and types:
+
+{
+  "title": (string) A short, clear title for these instructions (e.g., "Your Metformin Instructions"),
+  "summary": (string) A 2-4 sentence plain-language summary of the key points. Use simple words. Address the reader as "you".,
+  "checklist": (array of strings) Step-by-step actions the patient must take, written as clear actionable items. Each string should start with an action verb. Include timing, dosage, and any special instructions. Aim for 4-10 items.,
+  "warnings": (array of strings) Critical safety warnings in plain language. Things the patient absolutely must know to stay safe. Keep each warning to 1-2 sentences.,
+  "sideEffects": (array of strings) Common and important side effects described in everyday language. Each is 1 sentence.,
+  "callDoctor": (array of strings) Specific situations when the patient should call their doctor or go to the ER. Use concrete symptoms, not medical jargon.,
+  "teachBack": (array of strings) 3-5 simple questions the patient can answer to check their own understanding (e.g., "What time do you take your medicine?"),
+  "caregiverSummary": (string) A paragraph for caregivers explaining what the medication is for, how to help, and what to watch for. Written warmly and practically.,
+  "caregiverTasks": (array of strings) Specific tasks the caregiver should do (e.g., "Make sure they take the pill with breakfast"),
+  "caregiverWatchFor": (array of strings) Signs and symptoms the caregiver should watch for,
+  "ambiguityFlags": (array of objects with keys "original" (string), "issue" (string), "suggestion" (string)) Phrases from the ORIGINAL text that are ambiguous, confusing, or could be misinterpreted. "original" is the exact problematic phrase, "issue" explains why it's problematic, "suggestion" offers clearer wording.,
+  "originalReadingLevel": (string) Estimated grade reading level of the original text (e.g., "College level / Grade 16"),
+  "simplifiedReadingLevel": (string) Estimated grade reading level of your simplified version (e.g., "5th Grade"),
+  "highRiskMeds": (string or null) Names of any high-risk medications identified (e.g., blood thinners, insulin, opioids). null if none detected.,
+  "interactions": (string or null) Any potential drug interactions mentioned or implied. null if none detected.,
+  "comprehensionGaps": (array of strings) Areas where patients are most likely to misunderstand or forget instructions,
+  "clinicianNotes": (string) A brief note for the clinician about the simplification approach, what was emphasized, and any clinical concerns about the original instructions.
+}
+
+Be thorough, accurate, and compassionate. Never invent medical information not present in the original. If something is unclear in the original, flag it in ambiguityFlags rather than guessing.`;
+
+        this.processingStep = 'Creating your simplified version... 🤖';
+        
+        const response = await callAI('genericAI', { prompt });
+        
+        // Parse the response - it may be nested
+        let resultData = response;
+        
+        // Try to find the result object in various possible locations
+        if (typeof response === 'object') {
+          // Check common wrapper patterns
+          if (response.title && response.checklist) {
+            resultData = response;
+          } else {
+            // Look through all keys for the result object
+            for (const key of Object.keys(response)) {
+              const val = response[key];
+              if (typeof val === 'object' && val !== null && val.title && val.checklist) {
+                resultData = val;
+                break;
+              }
+              if (typeof val === 'string') {
+                try {
+                  const parsed = JSON.parse(val);
+                  if (parsed.title && parsed.checklist) {
+                    resultData = parsed;
+                    break;
+                  }
+                } catch(e) {}
+              }
+            }
+          }
+        }
+        
+        this.result = resultData;
+        this.checkedItems = {};
+        this.hasResult = true;
+        this.activeTab = this.settings.role === 'clinician' ? 'clinician' : (this.settings.role === 'caregiver' ? 'caregiver' : 'patient');
+        
+        // Save to history
+        const historyItem = {
+          title: this.result.title || 'Untitled',
+          timestamp: Date.now(),
+          result: this.result,
+          inputText: this.inputText
+        };
+        this.history.push(historyItem);
+        if (this.history.length > 20) this.history = this.history.slice(-20);
+        localStorage.setItem('medSimplifier_history', JSON.stringify(this.history));
+        
+        this.processingStep = '';
+        
+      } catch (error) {
+        console.error('Simplification error:', error);
+        this.errorMessage = error.message || 'We had trouble simplifying your instructions. Please check your internet connection and try again.';
+      } finally {
+        this.isProcessing = false;
+      }
+    },
+
+    loadFromHistory(item) {
+      this.result = item.result;
+      this.inputText = item.inputText;
+      this.hasResult = true;
+      this.checkedItems = {};
+      this.activeTab = 'patient';
+    },
+
+    readAloud() {
+      if (this.isSpeaking) {
+        speechSynthesis.cancel();
+        this.isSpeaking = false;
+        return;
+      }
+      
+      // Build text to read
+      let textToRead = '';
+      if (this.activeTab === 'patient') {
+        textToRead = `${this.result.title}. ${this.result.summary}. `;
+        textToRead += 'Here is your checklist. ';
+        (this.result.checklist || []).forEach((step, i) => {
+          textToRead += `Step ${i+1}: ${step}. `;
+        });
+        if (this.result.warnings && this.result.warnings.length) {
+          textToRead += 'Important warnings: ';
+          this.result.warnings.forEach(w => textToRead += w + '. ');
+        }
+        if (this.result.callDoctor && this.result.callDoctor.length) {
+          textToRead += 'Call your doctor if: ';
+          this.result.callDoctor.forEach(r => textToRead += r + '. ');
+        }
+      } else if (this.activeTab === 'caregiver') {
+        textToRead = `Caregiver summary. ${this.result.caregiverSummary}. `;
+        textToRead += 'What you need to do: ';
+        (this.result.caregiverTasks || []).forEach((task, i) => {
+          textToRead += `${i+1}: ${task}. `;
+        });
+      }
+      
+      if (!textToRead.trim()) return;
+      
+      const utterance = new SpeechSynthesisUtterance(textToRead);
+      utterance.rate = 0.85;
+      utterance.pitch = 1;
+      
+      // Try to match language
+      const langMap = {
+        'English': 'en-US', 'Spanish': 'es-ES', 'French': 'fr-FR',
+        'Chinese': 'zh-CN', 'Vietnamese': 'vi-VN', 'Korean': 'ko-KR', 'Arabic': 'ar-SA'
+      };
+      utterance.lang = langMap[this.settings.language] || 'en-US';
+      
+      utterance.onend = () => { this.isSpeaking = false; };
+      utterance.onerror = () => { this.isSpeaking = false; };
+      
+      this.isSpeaking = true;
+      speechSynthesis.speak(utterance);
+    },
+
+    printResults() {
+      window.print();
+    },
+
+    copyResults() {
+      let text = `${this.result.title}\n\n`;
+      text += `SUMMARY:\n${this.result.summary}\n\n`;
+      text += `CHECKLIST:\n`;
+      (this.result.checklist || []).forEach((s, i) => text += `${i+1}. ${s}\n`);
+      if (this.result.warnings?.length) {
+        text += `\nWARNINGS:\n`;
+        this.result.warnings.forEach(w => text += `⚠️ ${w}\n`);
+      }
+      if (this.result.callDoctor?.length) {
+        text += `\nCALL YOUR DOCTOR IF:\n`;
+        this.result.callDoctor.forEach(r => text += `📞 ${r}\n`);
+      }
+      
+      navigator.clipboard.writeText(text).then(() => {
+        alert('✅ Copied to clipboard!');
+      }).catch(() => {
+        // Fallback
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+        alert('✅ Copied to clipboard!');
+      });
+    },
+
+    async shareResults() {
+      const text = `${this.result.title}\n${this.result.summary}`;
+      if (navigator.share) {
+        try {
+          await navigator.share({ title: this.result.title, text });
+        } catch(e) { /* user cancelled */ }
+      } else {
+        this.copyResults();
+      }
+    }
+  };
+}
+</script>
+
+</body>
+</html>
